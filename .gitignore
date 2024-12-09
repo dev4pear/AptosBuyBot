@@ -1,0 +1,10 @@
+dist
+node_modules
+
+.env
+.env.*
+
+temp.*
+temp
+
+src/firebase/*.json
