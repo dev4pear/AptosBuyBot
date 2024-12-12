@@ -63,8 +63,12 @@ export async function setTokenAddress(ctx: CommandContext<Context>) {
   }
 
   ctx.reply(`✅ Buybot started for the group`);
-  teleBot.api.sendMessage(
-    projectGroup,
-    `This group will now start receiving buy alerts for ${symbol}`
-  );
+  try {
+    teleBot.api.sendMessage(
+      projectGroup,
+      `This group will now start receiving buy alerts for ${symbol}`
+    );
+  } catch (err) {
+    console.log(err);
+  }
 }
