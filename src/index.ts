@@ -3,7 +3,7 @@ import { initiateBotCommands, initiateCallbackQueries } from "./bot";
 import { errorHandler, log } from "./utils/handlers";
 import { BOT_TOKEN } from "./utils/env";
 import { aptos, processTxn, rpcConfig } from "./aptosWeb3";
-import { syncProjectGroups } from "./vars/projectGroups";
+import { projectGroups, syncProjectGroups } from "./vars/projectGroups";
 import { tokens, syncTokens } from "./vars/tokens";
 import { sleep } from "./utils/time";
 import {
@@ -13,7 +13,7 @@ import {
   PaginationArgs,
 } from "@aptos-labs/ts-sdk";
 import { AptosTransaction, StoredGroup, UptosToken } from "./types";
-import { apiFetcher, getMC } from "./utils/api";
+import { apiFetcher, getEvents, getMC, getTransaction } from "./utils/api";
 import {
   Worker,
   isMainThread,
@@ -22,6 +22,7 @@ import {
 } from "node:worker_threads";
 import { cpus } from "os";
 import { sendAlert } from "./bot/sendAlert";
+import { updateDocumentById } from "./firebase";
 
 const parseNum = (amount: number, decimals: number) => {
   return amount / 10 ** decimals;
@@ -82,8 +83,41 @@ log("Bot instance ready");
     limit: 1,
   };
 
-  const toRepeatUptos = async () => {
+  const toRepeat = async () => {
     try {
+      for (const groups of projectGroups) {
+        const num = groups.creation_num;
+        if (num != 0) {
+          const events = await getEvents(num);
+          for (var i = 0; i < events.length; i++) {
+            const event = events[i];
+            if (
+              event.data.x_in === "0" &&
+              parseInt(event.sequence_number) > groups.lastSequence
+            ) {
+              const tx = await getTransaction(event.version);
+              sendAlert({
+                token: groups.token,
+                tokenReceived: groups.symbol,
+                amountReceived: parseNum(event.data.x_out, groups.decimals),
+                tokenSent: "APT",
+                amountSent: parseNum(event.data.y_in, 8),
+                version: event.version,
+                receiver: tx.sender,
+              });
+
+              await updateDocumentById<StoredGroup>({
+                id: groups.id || "",
+                collectionName: "project_groups",
+                updates: {
+                  lastSequence: event.sequence_number,
+                },
+              }).then(() => syncProjectGroups());
+            }
+          }
+        }
+      }
+
       fetch(url, {
         method: "POST",
         headers: {
@@ -96,7 +130,6 @@ log("Bot instance ready");
       })
         .then((res) => res.json())
         .then((data) => {
-          // console.log("Response Data:", data.data.account_transactions);
           const res = data.data.account_transactions;
           if (res.length > 0) {
             for (var i = 0; i < res.length; i++) {
@@ -126,36 +159,10 @@ log("Bot instance ready");
           }
         })
         .catch((err) => console.error("Error: ---", err));
-    } catch (error) {
-      errorHandler(error);
+    } catch (err) {
+      console.log(err);
     } finally {
       await sleep(1000);
-      toRepeatUptos();
-    }
-  };
-
-  toRepeatUptos();
-
-  let offset = 0;
-  const limit = 50;
-
-  const toRepeat = async () => {
-    try {
-      let options: PaginationArgs = { limit };
-      if (offset > 0) options = { offset, ...options };
-      const txns = await aptos.getTransactions({ options });
-
-      txns.forEach((txn, index) => {
-        const txnData = txn as unknown as AptosTransaction;
-        const version = Number(txnData.version);
-
-        processTxn(txnData);
-        if (index === limit - 1) offset = version + 1;
-      });
-    } catch (error) {
-      errorHandler(error);
-    } finally {
-      await sleep(100);
       toRepeat();
     }
   };

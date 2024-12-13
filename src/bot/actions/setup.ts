@@ -1,3 +1,5 @@
+import * as fs from "fs";
+import * as path from "path";
 import { addDocument, updateDocumentById } from "@/firebase";
 import { teleBot } from "@/index";
 import { StoredGroup } from "@/types";
@@ -43,7 +45,19 @@ export async function setTokenAddress(ctx: CommandContext<Context>) {
 
   delete userState[chatId];
 
-  const { symbol } = tokenMetadata;
+  const resourcesPath = path.join(process.cwd(), "src/resources.json");
+  const resourcesData = JSON.parse(fs.readFileSync(resourcesPath, "utf-8"));
+  const poolData = resourcesData.find(
+    (resource: any) =>
+      resource.type.includes(tokenAddress) &&
+      resource.type.includes("liquidity_pool::EventsStore")
+  );
+
+  let creation_num = 0;
+  if (poolData != undefined)
+    creation_num = poolData.data.swap_handle.guid.id.creation_num;
+
+  const { decimals, symbol } = tokenMetadata;
 
   const projectGroupData = projectGroups.find(
     ({ chatId }) => chatId === projectGroup
@@ -53,12 +67,25 @@ export async function setTokenAddress(ctx: CommandContext<Context>) {
     updateDocumentById<StoredGroup>({
       id: projectGroupData.id || "",
       collectionName: "project_groups",
-      updates: { token: tokenAddress },
+      updates: {
+        token: tokenAddress,
+        creation_num,
+        lastSequence: 0,
+        symbol,
+        decimals,
+      },
     }).then(() => syncProjectGroups());
   } else {
     addDocument<StoredGroup>({
       collectionName: "project_groups",
-      data: { chatId: projectGroup, token: tokenAddress },
+      data: {
+        chatId: projectGroup,
+        token: tokenAddress,
+        creation_num,
+        lastSequence: 0,
+        symbol,
+        decimals,
+      },
     }).then(() => syncProjectGroups());
   }
 
